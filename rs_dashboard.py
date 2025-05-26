@@ -13,12 +13,12 @@ st.caption("Powered by Polygon.io")
 
 API_KEY = st.secrets["POLYGON_API_KEY"]
 
-# --- Caching settings ---
+# --- CACHE SETTINGS ---
 TICKER_CACHE_FILE = "tickers_cache.json"
 TICKER_CACHE_HOURS = 24
 
-# --- Sidebar filters ---
-lookback_days = st.sidebar.slider("Lookback Period (days)", 250)
+# --- SIDEBAR FILTERS ---
+lookback_days = st.sidebar.slider("Lookback Period (days)", 100, 400, 250)
 min_price = st.sidebar.number_input("Minimum Price", value=5.0)
 min_avg_volume = st.sidebar.number_input("Minimum Avg Volume", value=500_000)
 min_market_cap = st.sidebar.number_input("Minimum Market Cap ($)", value=2_000_000_000)
@@ -29,20 +29,18 @@ min_roi = st.sidebar.number_input("Return on Investment (%)", value=15.0)
 min_inst_ownership = st.sidebar.number_input("Institutional Ownership (%)", value=50.0)
 max_tickers = st.sidebar.number_input("Max Tickers to Scan", min_value=100, max_value=10000, value=1000, step=100)
 
-# --- Dates ---
+# --- DATE RANGE ---
 end_date = datetime.utcnow().date()
 start_date = end_date - timedelta(days=lookback_days)
-
 benchmark = "SPY"
 
-# --- Caching helper ---
+# --- TICKER CACHING ---
 def is_cache_valid(path, max_age_hours):
     if not Path(path).exists():
         return False
     mtime = datetime.fromtimestamp(Path(path).stat().st_mtime)
     return (datetime.utcnow() - mtime).total_seconds() < max_age_hours * 3600
 
-# --- Ticker list from Polygon ---
 def get_ticker_list():
     if is_cache_valid(TICKER_CACHE_FILE, TICKER_CACHE_HOURS):
         with open(TICKER_CACHE_FILE, "r") as f:
@@ -65,7 +63,7 @@ def get_ticker_list():
 
     return tickers
 
-# --- Get fundamentals ---
+# --- FUNDAMENTALS ---
 def get_fundamentals(ticker):
     url = f"https://api.polygon.io/vX/reference/financials?ticker={ticker}&apiKey={API_KEY}"
     res = requests.get(url)
@@ -85,7 +83,7 @@ def get_fundamentals(ticker):
     except:
         return None
 
-# --- Get % change, price, volume, EMAs ---
+# --- PRICE & EMA DATA ---
 def get_pct_change_and_emas(ticker):
     url = f"https://api.polygon.io/v2/aggs/ticker/{ticker}/range/1/day/{start_date}/{end_date}?adjusted=true&sort=asc&limit=50000&apiKey={API_KEY}"
     try:
@@ -111,15 +109,21 @@ def get_pct_change_and_emas(ticker):
     except:
         return None
 
-# --- Main Execution ---
+# --- MAIN EXECUTION ---
 with st.spinner("Fetching data and calculating relative strength..."):
     tickers = get_ticker_list()
     tickers = tickers[:max_tickers]
 
     benchmark_data = get_pct_change_and_emas(benchmark)
-    if not benchmark_data or benchmark_data["pct"] == 0:
-        st.error("Benchmark data unavailable.")
+
+    # 🐞 DEBUG BLOCK
+    if not benchmark_data:
+        st.error("❌ Benchmark data (SPY) fetch failed.")
     else:
+        st.info(f"✅ SPY Benchmark Debug Info: Price={benchmark_data['price']:.2f}, "
+                f"EMA50={benchmark_data['ema_50']:.2f}, EMA200={benchmark_data['ema_200']:.2f}, "
+                f"Return={benchmark_data['pct']*100:.2f}%")
+
         rs_list = []
         progress_bar = st.progress(0)
         status_text = st.empty()
