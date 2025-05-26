@@ -89,11 +89,11 @@ def get_pct_change_and_emas(ticker):
     try:
         res = requests.get(url, timeout=10)
         data = res.json()
-        results = data["results"]
+        results = data.get("results", [])
+        if len(results) < 200:
+            return None
         closes = [bar["c"] for bar in results]
         vols = [bar["v"] for bar in results]
-        if len(closes) < 200:
-            return None
         pct = (closes[-1] - closes[0]) / closes[0]
         ema_50 = pd.Series(closes).ewm(span=50).mean().iloc[-1]
         ema_200 = pd.Series(closes).ewm(span=200).mean().iloc[-1]
@@ -114,70 +114,38 @@ with st.spinner("Fetching data and calculating relative strength..."):
     tickers = get_ticker_list()
     tickers = tickers[:max_tickers]
 
-    benchmark_data = get_pct_change_and_emas(benchmark)
+    st.subheader("🔍 Debug: Benchmark (SPY) Fetch")
+    try:
+        spy_url = f"https://api.polygon.io/v2/aggs/ticker/{benchmark}/range/1/day/{start_date}/{end_date}?adjusted=true&sort=asc&limit=50000&apiKey={API_KEY}"
+        spy_response = requests.get(spy_url, timeout=10)
+        st.code(f"Request URL:\n{spy_url}")
+        st.write("Polygon Raw Response:", spy_response.status_code, spy_response.reason)
+        spy_data = spy_response.json()
+        st.json(spy_data)
 
-    # 🐞 DEBUG BLOCK
-    if not benchmark_data:
-        st.error("❌ Benchmark data (SPY) fetch failed.")
-    else:
-        st.info(f"✅ SPY Benchmark Debug Info: Price={benchmark_data['price']:.2f}, "
-                f"EMA50={benchmark_data['ema_50']:.2f}, EMA200={benchmark_data['ema_200']:.2f}, "
-                f"Return={benchmark_data['pct']*100:.2f}%")
-
-        rs_list = []
-        progress_bar = st.progress(0)
-        status_text = st.empty()
-
-        with ThreadPoolExecutor(max_workers=10) as executor:
-            futures = {executor.submit(get_pct_change_and_emas, ticker): ticker for ticker in tickers}
-            for i, future in enumerate(as_completed(futures)):
-                result = future.result()
-                if result is None:
-                    continue
-
-                fundamentals = get_fundamentals(result["ticker"])
-                if fundamentals is None:
-                    continue
-
-                if (
-                    result["price"] >= min_price and
-                    result["avg_vol"] >= min_avg_volume and
-                    fundamentals["market_cap"] >= min_market_cap and
-                    fundamentals["eps_growth"] >= min_eps_growth and
-                    fundamentals["eps_growth_5y"] >= min_eps_5y_growth and
-                    fundamentals["sales_growth_5y"] >= min_sales_5y_growth and
-                    fundamentals["roi"] >= min_roi and
-                    fundamentals["institutional_ownership"] >= min_inst_ownership and
-                    result["price"] > result["ema_50"] and
-                    result["price"] > result["ema_200"]
-                ):
-                    rs_score = result["pct"] / benchmark_data["pct"]
-                    rs_list.append({
-                        "Ticker": result["ticker"],
-                        "Price": round(result["price"], 2),
-                        "Return %": round(result["pct"] * 100, 2),
-                        "Avg Volume": int(result["avg_vol"]),
-                        "RS Score": round(rs_score, 2),
-                        "Market Cap ($B)": round(fundamentals["market_cap"] / 1e9, 2),
-                        "EPS Growth Y": fundamentals["eps_growth"],
-                        "EPS Growth 5Y": fundamentals["eps_growth_5y"],
-                        "Sales Growth 5Y": fundamentals["sales_growth_5y"],
-                        "RoI": fundamentals["roi"],
-                        "Inst. Ownership %": fundamentals["institutional_ownership"]
-                    })
-
-                progress = (i + 1) / len(tickers)
-                progress_bar.progress(progress)
-                status_text.text(f"Scanning ({i + 1}/{len(tickers)}): {futures[future]}")
-
-        status_text.text("✅ Done scanning tickers.")
-        df = pd.DataFrame(rs_list).sort_values("RS Score", ascending=False)
-        top_n = int(len(df) * 0.1)
-        top_df = df.head(max(1, top_n))
-
-        if not top_df.empty:
-            st.success(f"Top {len(top_df)} stocks by RS (vs {benchmark})")
-            st.dataframe(top_df, use_container_width=True)
-            st.download_button("📥 Download CSV", top_df.to_csv(index=False), file_name="top_relative_strength.csv")
+        if "results" not in spy_data or len(spy_data["results"]) < 200:
+            st.error("❌ SPY data has fewer than 200 candles or missing 'results'.")
+            benchmark_data = None
         else:
-            st.warning("No stocks matched your filter criteria.")
+            closes = [bar["c"] for bar in spy_data["results"]]
+            vols = [bar["v"] for bar in spy_data["results"]]
+            pct = (closes[-1] - closes[0]) / closes[0]
+            ema_50 = pd.Series(closes).ewm(span=50).mean().iloc[-1]
+            ema_200 = pd.Series(closes).ewm(span=200).mean().iloc[-1]
+            avg_vol = sum(vols) / len(vols)
+
+            benchmark_data = {
+                "ticker": benchmark,
+                "pct": pct,
+                "avg_vol": avg_vol,
+                "price": closes[-1],
+                "ema_50": ema_50,
+                "ema_200": ema_200
+            }
+
+            st.success("✅ Benchmark data fetched successfully.")
+            st.json(benchmark_data)
+
+    except Exception as e:
+        st.error(f"❌ Error while fetching SPY data: {e}")
+        benchmark_data = None
