@@ -2,26 +2,26 @@ import streamlit as st
 import pandas as pd
 import requests
 from datetime import datetime, timedelta
-import os
 import json
 from pathlib import Path
+from concurrent.futures import ThreadPoolExecutor, as_completed
 
 # --- CONFIG ---
 st.set_page_config(page_title="📈 RS Screener", layout="wide")
 st.title("📈 Top 10% Relative Strength Stocks vs SPY")
 st.caption("Powered by Polygon.io")
 
-# --- API ---
 API_KEY = st.secrets["POLYGON_API_KEY"]
 
-# --- CACHE SETTINGS ---
+# --- Caching settings ---
 TICKER_CACHE_FILE = "tickers_cache.json"
 TICKER_CACHE_HOURS = 24
 
-# --- Sidebar Filters ---
+# --- Sidebar inputs ---
 lookback_days = st.sidebar.slider("Lookback Period (days)", 10, 60, 21)
 min_price = st.sidebar.number_input("Minimum Price", value=5.0)
 min_avg_volume = st.sidebar.number_input("Minimum Avg Volume", value=1_000_000)
+max_tickers = st.sidebar.number_input("Max Tickers to Scan", min_value=100, max_value=10000, value=1000, step=100)
 
 # --- Dates ---
 end_date = datetime.utcnow().date()
@@ -30,7 +30,7 @@ start_date = end_date - timedelta(days=lookback_days)
 # --- Benchmark ---
 benchmark = "SPY"
 
-# --- Cache Ticker List ---
+# --- Ticker cache helpers ---
 def is_cache_valid(path, max_age_hours):
     if not Path(path).exists():
         return False
@@ -60,13 +60,12 @@ def get_ticker_list():
 
     return tickers
 
-# --- Get % Change ---
+# --- Fetch price % change ---
 def get_pct_change(ticker):
     url = f"https://api.polygon.io/v2/aggs/ticker/{ticker}/range/1/day/{start_date}/{end_date}?adjusted=true&sort=asc&limit=50000&apiKey={API_KEY}"
-    res = requests.get(url)
-    data = res.json()
-
     try:
+        res = requests.get(url, timeout=10)
+        data = res.json()
         results = data["results"]
         closes = [bar["c"] for bar in results]
         vols = [bar["v"] for bar in results]
@@ -74,14 +73,14 @@ def get_pct_change(ticker):
             return None
         pct = (closes[-1] - closes[0]) / closes[0]
         avg_vol = sum(vols) / len(vols)
-        return {"pct": pct, "avg_vol": avg_vol, "price": closes[-1]}
+        return {"ticker": ticker, "pct": pct, "avg_vol": avg_vol, "price": closes[-1]}
     except:
         return None
 
 # --- Main Logic ---
 with st.spinner("Fetching data and calculating relative strength..."):
     tickers = get_ticker_list()
-    tickers = tickers[:500]  # TEMP LIMIT for speed/testing
+    tickers = tickers[:max_tickers]
 
     benchmark_data = get_pct_change(benchmark)
     if not benchmark_data or benchmark_data["pct"] == 0:
@@ -91,21 +90,23 @@ with st.spinner("Fetching data and calculating relative strength..."):
         progress_bar = st.progress(0)
         status_text = st.empty()
 
-        for i, ticker in enumerate(tickers):
-            data = get_pct_change(ticker)
-            if data and data["price"] >= min_price and data["avg_vol"] >= min_avg_volume:
-                rs_score = data["pct"] / benchmark_data["pct"]
-                rs_list.append({
-                    "Ticker": ticker,
-                    "Price": round(data["price"], 2),
-                    "Return %": round(data["pct"] * 100, 2),
-                    "Avg Volume": int(data["avg_vol"]),
-                    "RS Score": round(rs_score, 2)
-                })
+        with ThreadPoolExecutor(max_workers=10) as executor:
+            futures = {executor.submit(get_pct_change, ticker): ticker for ticker in tickers}
+            for i, future in enumerate(as_completed(futures)):
+                result = future.result()
+                if result and result["price"] >= min_price and result["avg_vol"] >= min_avg_volume:
+                    rs_score = result["pct"] / benchmark_data["pct"]
+                    rs_list.append({
+                        "Ticker": result["ticker"],
+                        "Price": round(result["price"], 2),
+                        "Return %": round(result["pct"] * 100, 2),
+                        "Avg Volume": int(result["avg_vol"]),
+                        "RS Score": round(rs_score, 2)
+                    })
 
-            progress = (i + 1) / len(tickers)
-            progress_bar.progress(progress)
-            status_text.text(f"Scanning ticker {i + 1} of {len(tickers)}")
+                progress = (i + 1) / len(tickers)
+                progress_bar.progress(progress)
+                status_text.text(f"Scanning ({i + 1}/{len(tickers)}): {futures[future]}")
 
         status_text.text("✅ Done scanning tickers.")
         df = pd.DataFrame(rs_list).sort_values("RS Score", ascending=False)
@@ -115,5 +116,6 @@ with st.spinner("Fetching data and calculating relative strength..."):
         if not top_df.empty:
             st.success(f"Top {len(top_df)} stocks by RS (vs {benchmark})")
             st.dataframe(top_df, use_container_width=True)
+            st.download_button("📥 Download CSV", top_df.to_csv(index=False), file_name="top_relative_strength.csv")
         else:
             st.warning("No stocks matched your filter criteria.")
