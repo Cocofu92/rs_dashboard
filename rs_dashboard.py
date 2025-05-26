@@ -18,7 +18,7 @@ TICKER_CACHE_FILE = "tickers_cache.json"
 TICKER_CACHE_HOURS = 24
 
 # --- Sidebar filters ---
-lookback_days = st.sidebar.slider("Lookback Period (days)", 10, 60, 21)
+lookback_days = st.sidebar.slider("Lookback Period (days)", 250)
 min_price = st.sidebar.number_input("Minimum Price", value=5.0)
 min_avg_volume = st.sidebar.number_input("Minimum Avg Volume", value=500_000)
 min_market_cap = st.sidebar.number_input("Minimum Market Cap ($)", value=2_000_000_000)
