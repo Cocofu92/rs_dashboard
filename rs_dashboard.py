@@ -87,18 +87,28 @@ with st.spinner("Fetching data and calculating relative strength..."):
     if not benchmark_data or benchmark_data["pct"] == 0:
         st.error("Benchmark data unavailable.")
     else:
-        rs_list = []
-        for ticker in tickers:
-            data = get_pct_change(ticker)
-            if data and data["price"] >= min_price and data["avg_vol"] >= min_avg_volume:
-                rs_score = data["pct"] / benchmark_data["pct"]
-                rs_list.append({
-                    "Ticker": ticker,
-                    "Price": round(data["price"], 2),
-                    "Return %": round(data["pct"] * 100, 2),
-                    "Avg Volume": int(data["avg_vol"]),
-                    "RS Score": round(rs_score, 2)
-                })
+      rs_list = []
+progress_bar = st.progress(0)
+status_text = st.empty()
+
+for i, ticker in enumerate(tickers):
+    data = get_pct_change(ticker)
+    if data and data["price"] >= min_price and data["avg_vol"] >= min_avg_volume:
+        rs_score = data["pct"] / benchmark_data["pct"]
+        rs_list.append({
+            "Ticker": ticker,
+            "Price": round(data["price"], 2),
+            "Return %": round(data["pct"] * 100, 2),
+            "Avg Volume": int(data["avg_vol"]),
+            "RS Score": round(rs_score, 2)
+        })
+
+    progress = (i + 1) / len(tickers)
+    progress_bar.progress(progress)
+    status_text.text(f"Scanning ticker {i + 1} of {len(tickers)}")
+
+status_text.text("Done scanning tickers!")
+
 
         df = pd.DataFrame(rs_list).sort_values("RS Score", ascending=False)
         top_n = int(len(df) * 0.1)
