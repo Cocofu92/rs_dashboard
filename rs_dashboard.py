@@ -30,7 +30,7 @@ start_date = end_date - timedelta(days=lookback_days)
 # --- Benchmark ---
 benchmark = "SPY"
 
-# --- Ticker Cache ---
+# --- Cache Ticker List ---
 def is_cache_valid(path, max_age_hours):
     if not Path(path).exists():
         return False
@@ -60,7 +60,7 @@ def get_ticker_list():
 
     return tickers
 
-# --- Fetch % Change ---
+# --- Get % Change ---
 def get_pct_change(ticker):
     url = f"https://api.polygon.io/v2/aggs/ticker/{ticker}/range/1/day/{start_date}/{end_date}?adjusted=true&sort=asc&limit=50000&apiKey={API_KEY}"
     res = requests.get(url)
@@ -81,35 +81,33 @@ def get_pct_change(ticker):
 # --- Main Logic ---
 with st.spinner("Fetching data and calculating relative strength..."):
     tickers = get_ticker_list()
-    tickers = tickers[:500]  # temp limit
+    tickers = tickers[:500]  # TEMP LIMIT for speed/testing
 
     benchmark_data = get_pct_change(benchmark)
     if not benchmark_data or benchmark_data["pct"] == 0:
         st.error("Benchmark data unavailable.")
     else:
-      rs_list = []
-progress_bar = st.progress(0)
-status_text = st.empty()
+        rs_list = []
+        progress_bar = st.progress(0)
+        status_text = st.empty()
 
-for i, ticker in enumerate(tickers):
-    data = get_pct_change(ticker)
-    if data and data["price"] >= min_price and data["avg_vol"] >= min_avg_volume:
-        rs_score = data["pct"] / benchmark_data["pct"]
-        rs_list.append({
-            "Ticker": ticker,
-            "Price": round(data["price"], 2),
-            "Return %": round(data["pct"] * 100, 2),
-            "Avg Volume": int(data["avg_vol"]),
-            "RS Score": round(rs_score, 2)
-        })
+        for i, ticker in enumerate(tickers):
+            data = get_pct_change(ticker)
+            if data and data["price"] >= min_price and data["avg_vol"] >= min_avg_volume:
+                rs_score = data["pct"] / benchmark_data["pct"]
+                rs_list.append({
+                    "Ticker": ticker,
+                    "Price": round(data["price"], 2),
+                    "Return %": round(data["pct"] * 100, 2),
+                    "Avg Volume": int(data["avg_vol"]),
+                    "RS Score": round(rs_score, 2)
+                })
 
-    progress = (i + 1) / len(tickers)
-    progress_bar.progress(progress)
-    status_text.text(f"Scanning ticker {i + 1} of {len(tickers)}")
+            progress = (i + 1) / len(tickers)
+            progress_bar.progress(progress)
+            status_text.text(f"Scanning ticker {i + 1} of {len(tickers)}")
 
-status_text.text("Done scanning tickers!")
-
-
+        status_text.text("✅ Done scanning tickers.")
         df = pd.DataFrame(rs_list).sort_values("RS Score", ascending=False)
         top_n = int(len(df) * 0.1)
         top_df = df.head(max(1, top_n))
