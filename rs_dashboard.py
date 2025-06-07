@@ -66,10 +66,23 @@ def calculate_rs(tickers, max_threads=15):
     def process_ticker(ticker):
         data = fetch_price_data(ticker)
         if data:
-            start_price = data[0]["c"]
-            end_price = data[-1]["c"]
-            pct_change = (end_price - start_price) / start_price
-            return ticker, pct_change
+            try:
+                end_price = data[-1]["c"]
+                price_21d = data[-21]["c"]
+                price_63d = data[-63]["c"]
+                price_126d = data[-126]["c"]
+                price_252d = data[-252]["c"]
+
+                w1 = (end_price - price_21d) / price_21d
+                w2 = (end_price - price_63d) / price_63d
+                w3 = (end_price - price_126d) / price_126d
+                w4 = (end_price - price_252d) / price_252d
+
+                weighted_score = (0.4 * w1 + 0.3 * w2 + 0.2 * w3 + 0.1 * w4)
+
+                return ticker, weighted_score
+            except:
+                return None
         return None
 
     with ThreadPoolExecutor(max_workers=max_threads) as executor:
@@ -82,8 +95,8 @@ def calculate_rs(tickers, max_threads=15):
             if i % 50 == 0:
                 st.info(f"Processed {i}/{len(tickers)} tickers")
 
-    df = pd.DataFrame(records, columns=["Ticker", "Percent_Change"])
-    df["RS_Rank"] = df["Percent_Change"].rank(pct=True) * 100
+    df = pd.DataFrame(records, columns=["Ticker", "Weighted_RS"])
+    df["RS_Rank"] = df["Weighted_RS"].rank(pct=True) * 100
     top_df = df[df["RS_Rank"] >= TOP_PERCENTILE].sort_values("RS_Rank", ascending=False)
     return top_df
 
