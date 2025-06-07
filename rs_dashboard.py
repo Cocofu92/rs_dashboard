@@ -5,7 +5,7 @@ import requests
 from datetime import datetime, timedelta
 
 # === SETTINGS ===
-API_KEY = "cXcAYHG065BCC9xr6iTMMyhFlhZ2M7Uh"  # Replace with your actual Polygon API key here directly for now
+API_KEY = "cXcAYHG065BCC9xr6iTMMyhFlhZ2M7Uh"
 LOOKBACK_DAYS = 252  # Approx. 12 months
 TOP_PERCENTILE = 90
 
@@ -17,22 +17,29 @@ def get_ticker_list():
     tickers = []
 
     for exchange in exchanges:
-        url = f"https://api.polygon.io/v3/reference/tickers?market=stocks&exchange={exchange}&active=true&limit=1000&apiKey={API_KEY}"
-        try:
-            response = requests.get(url)
-            data = response.json()
+        base_url = f"https://api.polygon.io/v3/reference/tickers?market=stocks&exchange={exchange}&active=true&limit=1000&apiKey={API_KEY}"
+        next_url = base_url
 
-            if response.status_code != 200 or "results" not in data:
-                st.warning(f"Polygon API error ({exchange}): {data.get('error', 'Unknown error')}")
-                continue
+        while next_url:
+            try:
+                response = requests.get(next_url)
+                data = response.json()
 
-            for item in data["results"]:
-                if item.get("type") == "CS":  # Common Stock only
-                    tickers.append(item["ticker"])
+                if response.status_code != 200 or "results" not in data:
+                    st.warning(f"Polygon API error ({exchange}): {data.get('error', 'Unknown error')}")
+                    break
 
-        except Exception as e:
-            st.error(f"Exception while fetching from {exchange}: {e}")
-            continue
+                for item in data["results"]:
+                    if item.get("type") == "CS":  # Common Stock only
+                        tickers.append(item["ticker"])
+
+                next_url = data.get("next_url")
+                if next_url:
+                    next_url += f"&apiKey={API_KEY}"
+
+            except Exception as e:
+                st.error(f"Exception while fetching from {exchange}: {e}")
+                break
 
     return list(set(tickers))
 
@@ -63,7 +70,7 @@ def calculate_rs(tickers):
             records.append((ticker, pct_change))
         if i % 50 == 0:
             st.info(f"Processed {i}/{len(tickers)} tickers")
-    
+
     df = pd.DataFrame(records, columns=["Ticker", "Percent_Change"])
     df["RS_Rank"] = df["Percent_Change"].rank(pct=True) * 100
     top_df = df[df["RS_Rank"] >= TOP_PERCENTILE].sort_values("RS_Rank", ascending=False)
