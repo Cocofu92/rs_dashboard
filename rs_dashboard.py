@@ -5,7 +5,7 @@ import requests
 from datetime import datetime, timedelta
 
 # === SETTINGS ===
-API_KEY = "cXcAYHG065BCC9xr6iTMMyhFlhZ2M7Uh"  # Replace with your actual Polygon.io key
+API_KEY = st.secrets["polygon"]["api_key"]  # Loaded securely from Streamlit secrets
 LOOKBACK_DAYS = 252  # Approx. 12 months
 TOP_PERCENTILE = 90
 
