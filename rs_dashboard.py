@@ -79,11 +79,12 @@ def fetch_fundamentals(ticker):
 
 def calculate_rs(tickers, max_threads=15):
     records = []
-    fundamentals_map = {}
+    fundamentals_data = []
 
     def process_ticker(ticker):
         data = fetch_price_data(ticker)
-        if data:
+        fundamentals = fetch_fundamentals(ticker)
+        if data and fundamentals:
             try:
                 end_price = data[-1]["c"]
                 price_21d = data[-21]["c"]
@@ -102,7 +103,15 @@ def calculate_rs(tickers, max_threads=15):
                 above_ema_50 = end_price > np.mean(closes[-50:])
                 above_ema_200 = end_price > np.mean(closes[-200:])
 
-                return ticker, weighted_score, above_ema_50, above_ema_200
+                return {
+                    "Ticker": ticker,
+                    "Weighted_RS": weighted_score,
+                    "Above_50EMA": above_ema_50,
+                    "Above_200EMA": above_ema_200,
+                    "market_cap": fundamentals.get("market_cap"),
+                    "avg_volume": fundamentals.get("avg_volume"),
+                    "price": fundamentals.get("price")
+                }
             except:
                 return None
         return None
@@ -117,31 +126,20 @@ def calculate_rs(tickers, max_threads=15):
             if i % 50 == 0:
                 st.info(f"Processed {i}/{len(tickers)} tickers")
 
-    df = pd.DataFrame(records, columns=["Ticker", "Weighted_RS", "Above_50EMA", "Above_200EMA"])
+    df = pd.DataFrame(records)
     df["RS_Rank"] = df["Weighted_RS"].rank(pct=True) * 100
-    top_df = df[df["RS_Rank"] >= TOP_PERCENTILE].sort_values("RS_Rank", ascending=False)
 
-    # Fetch fundamentals only for the filtered top RS stocks
-    fundamentals = []
-    for ticker in top_df["Ticker"]:
-        f = fetch_fundamentals(ticker)
-        if f:
-            f["Ticker"] = ticker
-            fundamentals.append(f)
-
-    fund_df = pd.DataFrame(fundamentals)
-    merged_df = pd.merge(top_df, fund_df, on="Ticker")
-
-    # Final filter
-    filtered_df = merged_df[
-        (merged_df["market_cap"] >= 300_000_000) &
-        (merged_df["avg_volume"] >= 500_000) &
-        (merged_df["price"] >= 5) &
-        (merged_df["Above_50EMA"]) &
-        (merged_df["Above_200EMA"])
+    # Final filter applied after RS rank calculation
+    filtered_df = df[
+        (df["market_cap"] >= 300_000_000) &
+        (df["avg_volume"] >= 500_000) &
+        (df["price"] >= 5) &
+        (df["Above_50EMA"]) &
+        (df["Above_200EMA"])
     ]
 
-    return filtered_df.sort_values("RS_Rank", ascending=False)
+    top_df = filtered_df[filtered_df["RS_Rank"] >= TOP_PERCENTILE].sort_values("RS_Rank", ascending=False)
+    return top_df
 
 # === RUN ===
 with st.spinner("Fetching tickers..."):
