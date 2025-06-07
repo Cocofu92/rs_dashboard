@@ -5,7 +5,7 @@ import requests
 from datetime import datetime, timedelta
 
 # === SETTINGS ===
-API_KEY = "YOUR_POLYGON_API_KEY"  # Replace with your actual Polygon.io key
+API_KEY = "cXcAYHG065BCC9xr6iTMMyhFlhZ2M7Uh"  # Replace with your actual Polygon.io key
 LOOKBACK_DAYS = 252  # Approx. 12 months
 TOP_PERCENTILE = 90
 
