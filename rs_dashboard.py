@@ -60,8 +60,26 @@ def fetch_price_data(ticker):
     except:
         return None
 
+@st.cache_data(ttl=86400)
+def fetch_fundamentals(ticker):
+    url = f"https://api.polygon.io/vX/reference/financials?ticker={ticker}&limit=1&apiKey={API_KEY}"
+    try:
+        res = requests.get(url)
+        data = res.json().get("results", [])
+        if not data:
+            return None
+        metrics = data[0].get("metrics", {})
+        return {
+            "market_cap": metrics.get("market_cap"),
+            "avg_volume": metrics.get("vol_avg"),
+            "price": metrics.get("close")
+        }
+    except:
+        return None
+
 def calculate_rs(tickers, max_threads=15):
     records = []
+    fundamentals_map = {}
 
     def process_ticker(ticker):
         data = fetch_price_data(ticker)
@@ -80,7 +98,11 @@ def calculate_rs(tickers, max_threads=15):
 
                 weighted_score = (0.3 * w1 + 0.25 * w2 + 0.25 * w3 + 0.2 * w4)
 
-                return ticker, weighted_score
+                closes = [bar["c"] for bar in data]
+                above_ema_50 = end_price > np.mean(closes[-50:])
+                above_ema_200 = end_price > np.mean(closes[-200:])
+
+                return ticker, weighted_score, above_ema_50, above_ema_200
             except:
                 return None
         return None
@@ -95,10 +117,31 @@ def calculate_rs(tickers, max_threads=15):
             if i % 50 == 0:
                 st.info(f"Processed {i}/{len(tickers)} tickers")
 
-    df = pd.DataFrame(records, columns=["Ticker", "Weighted_RS"])
+    df = pd.DataFrame(records, columns=["Ticker", "Weighted_RS", "Above_50EMA", "Above_200EMA"])
     df["RS_Rank"] = df["Weighted_RS"].rank(pct=True) * 100
     top_df = df[df["RS_Rank"] >= TOP_PERCENTILE].sort_values("RS_Rank", ascending=False)
-    return top_df
+
+    # Fetch fundamentals only for the filtered top RS stocks
+    fundamentals = []
+    for ticker in top_df["Ticker"]:
+        f = fetch_fundamentals(ticker)
+        if f:
+            f["Ticker"] = ticker
+            fundamentals.append(f)
+
+    fund_df = pd.DataFrame(fundamentals)
+    merged_df = pd.merge(top_df, fund_df, on="Ticker")
+
+    # Final filter
+    filtered_df = merged_df[
+        (merged_df["market_cap"] >= 300_000_000) &
+        (merged_df["avg_volume"] >= 500_000) &
+        (merged_df["price"] >= 5) &
+        (merged_df["Above_50EMA"]) &
+        (merged_df["Above_200EMA"])
+    ]
+
+    return filtered_df.sort_values("RS_Rank", ascending=False)
 
 # === RUN ===
 with st.spinner("Fetching tickers..."):
@@ -107,7 +150,7 @@ with st.spinner("Fetching tickers..."):
 with st.spinner("Calculating RS Rankings... This may take a few minutes."):
     rs_df = calculate_rs(tickers)
 
-st.success(f"Top {100 - TOP_PERCENTILE}% performers out of {len(tickers)} stocks.")
+st.success(f"Top {100 - TOP_PERCENTILE}% RS stocks that passed your filters.")
 st.dataframe(rs_df.reset_index(drop=True), use_container_width=True)
 
 # Optional export
