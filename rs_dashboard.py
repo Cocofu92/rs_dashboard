@@ -3,6 +3,7 @@ import pandas as pd
 import numpy as np
 import requests
 from datetime import datetime, timedelta
+from concurrent.futures import ThreadPoolExecutor, as_completed
 
 # === SETTINGS ===
 API_KEY = "cXcAYHG065BCC9xr6iTMMyhFlhZ2M7Uh"
@@ -59,17 +60,27 @@ def fetch_price_data(ticker):
     except:
         return None
 
-def calculate_rs(tickers):
+def calculate_rs(tickers, max_threads=15):
     records = []
-    for i, ticker in enumerate(tickers):
+
+    def process_ticker(ticker):
         data = fetch_price_data(ticker)
         if data:
             start_price = data[0]["c"]
             end_price = data[-1]["c"]
             pct_change = (end_price - start_price) / start_price
-            records.append((ticker, pct_change))
-        if i % 50 == 0:
-            st.info(f"Processed {i}/{len(tickers)} tickers")
+            return ticker, pct_change
+        return None
+
+    with ThreadPoolExecutor(max_workers=max_threads) as executor:
+        futures = {executor.submit(process_ticker, ticker): ticker for ticker in tickers}
+
+        for i, future in enumerate(as_completed(futures)):
+            result = future.result()
+            if result:
+                records.append(result)
+            if i % 50 == 0:
+                st.info(f"Processed {i}/{len(tickers)} tickers")
 
     df = pd.DataFrame(records, columns=["Ticker", "Percent_Change"])
     df["RS_Rank"] = df["Percent_Change"].rank(pct=True) * 100
