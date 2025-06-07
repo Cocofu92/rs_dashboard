@@ -78,7 +78,7 @@ def calculate_rs(tickers, max_threads=15):
                 w3 = (end_price - price_126d) / price_126d
                 w4 = (end_price - price_252d) / price_252d
 
-                weighted_score = (0.4 * w1 + 0.3 * w2 + 0.2 * w3 + 0.1 * w4)
+                weighted_score = (0.3 * w1 + 0.25 * w2 + 0.25 * w3 + 0.2 * w4)
 
                 return ticker, weighted_score
             except:
